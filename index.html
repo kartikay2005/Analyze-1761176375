@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Actions CI/CD Setup</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f4f4f9;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            width: 90%;
+            max-width: 800px;
+            background-color: #fff;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+        pre {
+            background-color: #f8f8f8;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>GitHub Actions CI/CD Setup</h1>
+        <div id="status"></div>
+        <pre id="output"></pre>
+    </div>
+    <script>
+        async function fetchAndProcessFiles() {
+            try {
+                const executePyResponse = await fetch('assets/execute.py');
+                if (!executePyResponse.ok) throw new Error('Failed to load execute.py');
+                let executePyContent = await executePyResponse.text();
+                executePyContent = executePyContent.replace(/revenew/g, 'revenue');
+
+                const dataXlsxResponse = await fetch('assets/data.xlsx');
+                if (!dataXlsxResponse.ok) throw new Error('Failed to load data.xlsx');
+                const dataXlsxBlob = await dataXlsxResponse.blob();
+                const dataCsvContent = await convertXlsxToCsv(dataXlsxBlob);
+
+                const ciYamlContent = `
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas==2.3 ruff
+      - name: Run ruff
+        run: ruff .
+      - name: Run execute.py
+        run: python execute.py > result.json
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: \${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./result.json
+`;
+
+                document.getElementById('output').textContent = `
+execute.py (fixed):
+${executePyContent}
+
+data.csv:
+${dataCsvContent}
+
+.github/workflows/ci.yml:
+${ciYamlContent}
+`;
+
+                document.getElementById('status').textContent = 'Files processed successfully!';
+                document.getElementById('status').className = 'success';
+            } catch (error) {
+                document.getElementById('status').textContent = `Error: ${error.message}`;
+                document.getElementById('status').className = 'error';
+            }
+        }
+
+        async function convertXlsxToCsv(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const csv = XLSX.utils.sheet_to_csv(worksheet);
+                    resolve(csv);
+                };
+                reader.onerror = function () {
+                    reject(new Error('Failed to read XLSX file'));
+                };
+                reader.readAsArrayBuffer(blob);
+            });
+        }
+
+        fetchAndProcessFiles();
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</body>
+</html>
